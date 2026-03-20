@@ -118,7 +118,7 @@ class SolarIndexCoordinator(DataUpdateCoordinator):
                 end_time,
                 {self._solar_sensor},
                 "day",
-                None,
+                {},
                 {"sum"},
             )
         except Exception as exc:
@@ -190,10 +190,6 @@ class SolarIndexCoordinator(DataUpdateCoordinator):
     # ------------------------------------------------------------------
     # DataUpdateCoordinator refresh
     # ------------------------------------------------------------------
-
-    async def _async_setup(self) -> None:
-        """Called once on integration load."""
-        await self._load_history()
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch weather, auto-train, calculate forecasts."""

@@ -13,6 +13,7 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -76,14 +77,13 @@ class SolarIndexBaseSensor(CoordinatorEntity[SolarIndexCoordinator], SensorEntit
         self._attr_has_entity_name = True
 
     @property
-    def device_info(self):
-        from homeassistant.helpers.device_registry import DeviceInfo
+    def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
             name=self._entry.title,
             manufacturer="SolarIndex",
             model="Solar Yield Forecaster",
-            entry_type="service",
+            entry_type=DeviceEntryType.SERVICE,
         )
 
 

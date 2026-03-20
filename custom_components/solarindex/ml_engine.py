@@ -240,7 +240,6 @@ def _auto_fill_missing_buckets(
         # Use a synthetic date offset to avoid collision
         offset = {"sunny": 1, "mixed": 2, "overcast": 3}
         try:
-            from datetime import datetime, timedelta
             synth_date = (
                 datetime.fromisoformat(base_date) - timedelta(days=offset.get(bucket, 1))
             ).strftime("%Y-%m-%d")
@@ -268,9 +267,11 @@ def _enforce_caps(history: list[TrainingEntry]) -> list[TrainingEntry]:
     result: list[TrainingEntry] = []
     for bucket in (BUCKET_SUNNY, BUCKET_MIXED, BUCKET_OVERCAST):
         bucket_entries = [e for e in history if e["bucket"] == bucket]
-        # Sort newest first; auto-fill entries are lower priority
-        bucket_entries.sort(key=lambda e: (e.get("is_auto_fill", False), e["date"]), reverse=False)
-        bucket_entries.sort(key=lambda e: e["date"], reverse=True)
+        # Sort: real entries first (is_auto_fill=False sorts before True), then newest first
+        bucket_entries.sort(
+            key=lambda e: (e.get("is_auto_fill", False), e["date"]),
+            reverse=True,
+        )
         result.extend(bucket_entries[:MAX_PER_BUCKET])
 
     # Final overall cap
