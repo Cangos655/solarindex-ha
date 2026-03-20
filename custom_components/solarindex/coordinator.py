@@ -134,10 +134,14 @@ class SolarIndexCoordinator(DataUpdateCoordinator):
             if i == 0:
                 continue  # need delta from previous row
             prev = sensor_stats[i - 1]
-            if row.sum is not None and prev.sum is not None:
-                delta = row.sum - prev.sum
+            # Support both dict (older HA) and object (newer HA) row formats
+            row_sum = row["sum"] if isinstance(row, dict) else row.sum
+            prev_sum = prev["sum"] if isinstance(prev, dict) else prev.sum
+            if row_sum is not None and prev_sum is not None:
+                delta = row_sum - prev_sum
                 if delta > 0:
-                    date_str = row.start.astimezone(timezone.utc).strftime("%Y-%m-%d")
+                    row_start = row["start"] if isinstance(row, dict) else row.start
+                    date_str = row_start.astimezone(timezone.utc).strftime("%Y-%m-%d")
                     daily_yields[date_str] = round(delta, 3)
 
         _LOGGER.debug("Read %d daily solar yield entries from recorder", len(daily_yields))
