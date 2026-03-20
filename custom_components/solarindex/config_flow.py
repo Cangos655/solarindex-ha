@@ -149,23 +149,15 @@ class SolarIndexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_advanced(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.FlowResult:
-        """Step 2: Advanced settings (temperature parameters)."""
-        if user_input is not None:
-            self._data.update(user_input)
-            title = self._data.get(CONF_LOCATION_NAME, "SolarIndex")
-            return self.async_create_entry(title=title, data=self._data)
+        """Skipped during setup – defaults are applied automatically.
 
-        schema = vol.Schema(
-            {
-                vol.Optional(
-                    CONF_TEMP_COEFFICIENT, default=DEFAULT_TEMP_COEFFICIENT
-                ): vol.All(vol.Coerce(float), vol.Range(min=0.001, max=0.01)),
-                vol.Optional(
-                    CONF_CELL_TEMP_OFFSET, default=DEFAULT_CELL_TEMP_OFFSET
-                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
-            }
-        )
-        return self.async_show_form(step_id="advanced", data_schema=schema)
+        Advanced parameters (temp coefficient, cell temp offset) are available
+        for adjustment via the Options Flow (gear icon) after setup.
+        """
+        self._data.setdefault(CONF_TEMP_COEFFICIENT, DEFAULT_TEMP_COEFFICIENT)
+        self._data.setdefault(CONF_CELL_TEMP_OFFSET, DEFAULT_CELL_TEMP_OFFSET)
+        title = self._data.get(CONF_LOCATION_NAME, "SolarIndex")
+        return self.async_create_entry(title=title, data=self._data)
 
     @staticmethod
     @callback
