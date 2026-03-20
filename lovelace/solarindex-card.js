@@ -92,6 +92,33 @@ class SolarIndexCard extends HTMLElement {
   _render() {
     if (!this._hass) return;
 
+    // Show placeholder if no entities found yet
+    const testState = this._hass.states[`${this._config.entity_prefix}_today`];
+    if (!testState) {
+      this.shadowRoot.innerHTML = `
+        <style>
+          :host { display: block; }
+          .card {
+            background: var(--card-background-color);
+            border-radius: 16px;
+            padding: 24px;
+            font-family: var(--paper-font-body1_-_font-family, sans-serif);
+            color: var(--primary-text-color);
+            text-align: center;
+            opacity: 0.7;
+          }
+          .icon { font-size: 40px; margin-bottom: 12px; }
+          .title { font-weight: 600; margin-bottom: 6px; }
+          .sub { font-size: 13px; opacity: 0.6; }
+        </style>
+        <div class="card">
+          <div class="icon">☀️</div>
+          <div class="title">SolarIndex</div>
+          <div class="sub">Waiting for data…<br>Make sure the integration is set up and entity_prefix is correct.</div>
+        </div>`;
+      return;
+    }
+
     const prefix = this._config.entity_prefix;
     const forecasts = DAY_KEYS.map((key, i) => {
       const state = this._getState(key);
@@ -357,5 +384,5 @@ window.customCards.push({
   type: "solarindex-card",
   name: "SolarIndex Card",
   description: "Solar yield forecast with ML-based training progress.",
-  preview: true,
+  preview: false,
 });
