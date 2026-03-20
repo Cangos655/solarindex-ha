@@ -1,0 +1,243 @@
+"""DataUpdateCoordinator for SolarIndex – fetches weather, auto-trains ML model."""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+import aiohttp
+from homeassistant.components.recorder import get_instance
+from homeassistant.components.recorder.statistics import statistics_during_period
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.storage import Store
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
+
+from .const import (
+    ARCHIVE_LOOKBACK_DAYS,
+    CONF_CELL_TEMP_OFFSET,
+    CONF_LATITUDE,
+    CONF_LONGITUDE,
+    CONF_SOLAR_SENSOR,
+    CONF_TEMP_COEFFICIENT,
+    DEFAULT_CELL_TEMP_OFFSET,
+    DEFAULT_TEMP_COEFFICIENT,
+    DOMAIN,
+    UPDATE_INTERVAL,
+)
+from .ml_engine import (
+    TrainingEntry,
+    calculate_expected_yield,
+    get_bucket,
+    get_model_accuracy,
+    save_training_entry,
+)
+from .weather_api import fetch_forecast, fetch_historical_range
+
+_LOGGER = logging.getLogger(__name__)
+
+STORAGE_VERSION = 1
+STORAGE_KEY_TEMPLATE = f"{DOMAIN}_{{entry_id}}_history"
+
+
+class SolarIndexCoordinator(DataUpdateCoordinator):
+    """Manages data fetching, auto-training, and forecast calculation."""
+
+    def __init__(self, hass: HomeAssistant, config_entry) -> None:
+        self.config_entry = config_entry
+        self._latitude: float = config_entry.data[CONF_LATITUDE]
+        self._longitude: float = config_entry.data[CONF_LONGITUDE]
+        self._solar_sensor: str = config_entry.data[CONF_SOLAR_SENSOR]
+        self._temp_coefficient: float = config_entry.data.get(
+            CONF_TEMP_COEFFICIENT, DEFAULT_TEMP_COEFFICIENT
+        )
+        self._cell_temp_offset: int = config_entry.data.get(
+            CONF_CELL_TEMP_OFFSET, DEFAULT_CELL_TEMP_OFFSET
+        )
+
+        self._store: Store = Store(
+            hass,
+            STORAGE_VERSION,
+            STORAGE_KEY_TEMPLATE.format(entry_id=config_entry.entry_id),
+        )
+        self._history: list[TrainingEntry] = []
+
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN}_{config_entry.entry_id}",
+            update_interval=UPDATE_INTERVAL,
+        )
+
+    # ------------------------------------------------------------------
+    # Public helpers
+    # ------------------------------------------------------------------
+
+    @property
+    def history(self) -> list[TrainingEntry]:
+        return self._history
+
+    @property
+    def training_count(self) -> int:
+        return len([e for e in self._history if not e.get("is_auto_fill", False)])
+
+    @property
+    def model_accuracy(self) -> float:
+        return get_model_accuracy(self._history)
+
+    # ------------------------------------------------------------------
+    # Storage
+    # ------------------------------------------------------------------
+
+    async def _load_history(self) -> None:
+        stored = await self._store.async_load()
+        if stored and isinstance(stored.get("history"), list):
+            self._history = stored["history"]
+            _LOGGER.debug("Loaded %d training entries from storage", len(self._history))
+
+    async def _save_history(self) -> None:
+        await self._store.async_save({"history": self._history})
+
+    # ------------------------------------------------------------------
+    # HA Recorder: read daily solar statistics
+    # ------------------------------------------------------------------
+
+    async def _get_daily_solar_yields(self) -> dict[str, float]:
+        """Return {date_str: kwh} for the past ARCHIVE_LOOKBACK_DAYS days."""
+        now = dt_util.now()
+        end_time = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_time = end_time - timedelta(days=ARCHIVE_LOOKBACK_DAYS)
+
+        try:
+            stats = await get_instance(self.hass).async_add_executor_job(
+                statistics_during_period,
+                self.hass,
+                start_time,
+                end_time,
+                {self._solar_sensor},
+                "day",
+                None,
+                {"sum"},
+            )
+        except Exception as exc:
+            _LOGGER.warning("Could not read recorder statistics: %s", exc)
+            return {}
+
+        sensor_stats = stats.get(self._solar_sensor, [])
+        if not sensor_stats:
+            return {}
+
+        daily_yields: dict[str, float] = {}
+        for i, row in enumerate(sensor_stats):
+            if i == 0:
+                continue  # need delta from previous row
+            prev = sensor_stats[i - 1]
+            if row.sum is not None and prev.sum is not None:
+                delta = row.sum - prev.sum
+                if delta > 0:
+                    date_str = row.start.astimezone(timezone.utc).strftime("%Y-%m-%d")
+                    daily_yields[date_str] = round(delta, 3)
+
+        _LOGGER.debug("Read %d daily solar yield entries from recorder", len(daily_yields))
+        return daily_yields
+
+    # ------------------------------------------------------------------
+    # Auto-training
+    # ------------------------------------------------------------------
+
+    async def _auto_train(self, daily_yields: dict[str, float]) -> bool:
+        """Add new training entries for days not yet in history. Returns True if changed."""
+        if not daily_yields:
+            return False
+
+        trained_dates = {e["date"] for e in self._history}
+        new_dates = sorted(
+            [d for d in daily_yields if d not in trained_dates], reverse=True
+        )[:10]  # process at most 10 new days per update cycle
+
+        if not new_dates:
+            return False
+
+        session = async_get_clientsession(self.hass)
+        start = min(new_dates)
+        end = max(new_dates)
+
+        weather_days = await fetch_historical_range(session, self._latitude, self._longitude, start, end)
+        weather_by_date = {w["date"]: w for w in weather_days}
+
+        changed = False
+        for date_str in new_dates:
+            weather = weather_by_date.get(date_str)
+            if not weather:
+                _LOGGER.debug("No archive weather for %s, skipping", date_str)
+                continue
+            yield_kwh = daily_yields[date_str]
+            self._history = save_training_entry(
+                date_str,
+                yield_kwh,
+                weather,
+                self._history,
+                self._temp_coefficient,
+                self._cell_temp_offset,
+            )
+            _LOGGER.info("Auto-trained: %s → %.2f kWh (%s)", date_str, yield_kwh, weather.get("bucket", "?"))
+            changed = True
+
+        return changed
+
+    # ------------------------------------------------------------------
+    # DataUpdateCoordinator refresh
+    # ------------------------------------------------------------------
+
+    async def _async_setup(self) -> None:
+        """Called once on integration load."""
+        await self._load_history()
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        """Fetch weather, auto-train, calculate forecasts."""
+        session = async_get_clientsession(self.hass)
+
+        # 1. Fetch forecast
+        try:
+            weather_data = await fetch_forecast(session, self._latitude, self._longitude)
+        except aiohttp.ClientError as exc:
+            raise UpdateFailed(f"Open-Meteo API error: {exc}") from exc
+        except Exception as exc:
+            raise UpdateFailed(f"Unexpected error fetching weather: {exc}") from exc
+
+        # 2. Read solar yields from HA recorder
+        daily_yields = await self._get_daily_solar_yields()
+
+        # 3. Auto-train ML model
+        if await self._auto_train(daily_yields):
+            await self._save_history()
+
+        # 4. Calculate forecasts for each day
+        forecast_list = weather_data.get("forecast", [])
+        forecasts = []
+        for day in forecast_list:
+            expected_kwh = calculate_expected_yield(
+                day,
+                self._history,
+                self._temp_coefficient,
+                self._cell_temp_offset,
+            )
+            bucket = get_bucket(
+                day.get("sunshine_duration", 0),
+                day.get("daylight_duration", 1),
+            )
+            forecasts.append({
+                **day,
+                "expected_kwh": expected_kwh,
+                "condition": bucket,
+            })
+
+        return {
+            "forecasts": forecasts,
+            "yesterday": weather_data.get("yesterday"),
+            "model_accuracy": self.model_accuracy,
+            "training_count": self.training_count,
+            "today_condition": forecasts[0]["condition"] if forecasts else "unknown",
+        }
