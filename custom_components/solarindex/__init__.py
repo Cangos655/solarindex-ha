@@ -6,6 +6,7 @@ import logging
 import pathlib
 import shutil
 
+from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
@@ -19,6 +20,13 @@ PLATFORMS = [Platform.SENSOR]
 
 _CARD_FILENAME = "solarindex-card.js"
 _CARD_URL = f"/local/{_CARD_FILENAME}"
+
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Register the Lovelace card JS at startup (called once, before any entries)."""
+    await hass.async_add_executor_job(_copy_card_to_www, hass)
+    add_extra_js_url(hass, _CARD_URL)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -35,40 +43,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
-    # Copy card JS to /config/www/ and register as Lovelace resource
-    await hass.async_add_executor_job(_copy_card_to_www, hass)
-    await _async_register_lovelace_resource(hass)
-
     return True
 
 
 def _copy_card_to_www(hass: HomeAssistant) -> None:
-    """Copy solarindex-card.js to /config/www/ (HA's built-in static folder)."""
+    """Copy solarindex-card.js to /config/www/ (served by HA at /local/)."""
     src = pathlib.Path(__file__).parent / "www" / _CARD_FILENAME
     dst_dir = pathlib.Path(hass.config.config_dir) / "www"
     dst_dir.mkdir(exist_ok=True)
     dst = dst_dir / _CARD_FILENAME
     shutil.copy2(str(src), str(dst))
     _LOGGER.debug("Copied %s to %s", _CARD_FILENAME, dst)
-
-
-async def _async_register_lovelace_resource(hass: HomeAssistant) -> None:
-    """Add solarindex-card.js as a Lovelace resource if not already present."""
-    try:
-        lovelace = hass.data.get("lovelace")
-        if lovelace is None:
-            return
-        resources = lovelace.get("resources")
-        if resources is None:
-            return
-        await resources.async_load()
-        for resource in resources.async_items():
-            if "solarindex-card" in resource.get("url", ""):
-                return  # Already registered
-        await resources.async_create_item({"res_type": "module", "url": _CARD_URL})
-        _LOGGER.info("SolarIndex Lovelace card registered as resource")
-    except Exception as exc:  # noqa: BLE001
-        _LOGGER.warning("Could not auto-register Lovelace resource: %s", exc)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
