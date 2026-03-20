@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import pathlib
+import shutil
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -16,14 +17,8 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [Platform.SENSOR]
 
-_CARD_URL = f"/{DOMAIN}/www/solarindex-card.js"
-
-
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Register static path for the Lovelace card (runs once at startup)."""
-    www_path = pathlib.Path(__file__).parent / "www"
-    hass.http.register_static_path(_CARD_URL, str(www_path / "solarindex-card.js"), cache_headers=False)
-    return True
+_CARD_FILENAME = "solarindex-card.js"
+_CARD_URL = f"/local/{_CARD_FILENAME}"
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -40,10 +35,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
-    # Auto-register the Lovelace card resource
+    # Copy card JS to /config/www/ and register as Lovelace resource
+    await hass.async_add_executor_job(_copy_card_to_www, hass)
     await _async_register_lovelace_resource(hass)
 
     return True
+
+
+def _copy_card_to_www(hass: HomeAssistant) -> None:
+    """Copy solarindex-card.js to /config/www/ (HA's built-in static folder)."""
+    src = pathlib.Path(__file__).parent / "www" / _CARD_FILENAME
+    dst_dir = pathlib.Path(hass.config.config_dir) / "www"
+    dst_dir.mkdir(exist_ok=True)
+    dst = dst_dir / _CARD_FILENAME
+    shutil.copy2(str(src), str(dst))
+    _LOGGER.debug("Copied %s to %s", _CARD_FILENAME, dst)
 
 
 async def _async_register_lovelace_resource(hass: HomeAssistant) -> None:
