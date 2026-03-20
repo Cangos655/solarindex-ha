@@ -141,6 +141,9 @@ class SolarIndexCoordinator(DataUpdateCoordinator):
                 delta = row_sum - prev_sum
                 if delta > 0:
                     row_start = row["start"] if isinstance(row, dict) else row.start
+                    # start may be a Unix timestamp (float/int) or a datetime
+                    if isinstance(row_start, (int, float)):
+                        row_start = datetime.fromtimestamp(row_start, tz=timezone.utc)
                     date_str = row_start.astimezone(timezone.utc).strftime("%Y-%m-%d")
                     daily_yields[date_str] = round(delta, 3)
 
