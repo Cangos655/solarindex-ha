@@ -166,6 +166,16 @@ class SolarIndexTrainingCountSensor(SolarIndexBaseSensor):
     def native_value(self) -> int | None:
         return (self.coordinator.data or {}).get("training_count")
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        per_bucket = (self.coordinator.data or {}).get("training_per_bucket", {})
+        return {
+            "sunny": per_bucket.get("sunny", 0),
+            "mixed": per_bucket.get("mixed", 0),
+            "overcast": per_bucket.get("overcast", 0),
+            "max_per_bucket": 10,
+        }
+
 
 class SolarIndexConditionSensor(SolarIndexBaseSensor):
     """Today's weather condition bucket (sunny / mixed / overcast)."""

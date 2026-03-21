@@ -8,6 +8,8 @@
  *   title: "My Solar Forecast"         (optional)
  */
 
+const CARD_VERSION = "1.0.19";
+
 const WEATHER_ICONS = {
   0: "☀️", 1: "🌤", 2: "⛅", 3: "☁️",
   45: "🌫", 48: "🌫",
@@ -25,9 +27,9 @@ const CONDITION_COLORS = {
 };
 
 const CONDITION_LABELS = {
-  sunny: "Sunny",
-  mixed: "Mixed",
-  overcast: "Overcast",
+  sunny: "Sonnig",
+  mixed: "Wechselhaft",
+  overcast: "Bewölkt",
 };
 
 const DAY_KEYS = [
@@ -56,6 +58,60 @@ function formatDate(dateStr) {
   }
 }
 
+function shortWeekday(dateStr) {
+  if (!dateStr) return "";
+  try {
+    const d = new Date(dateStr + "T00:00:00");
+    return d.toLocaleDateString(undefined, { weekday: "short" });
+  } catch {
+    return "";
+  }
+}
+
+// Shared auto-discovery function (used by card + editor)
+function discoverSolarIndexEntities(hass) {
+  if (!hass) return null;
+  const states = hass.states;
+  const d = {};
+  const suffixes = {
+    entity_today: ["_today"], entity_tomorrow: ["_tomorrow"],
+    entity_day3: ["_day_3"], entity_day4: ["_day_4"], entity_day5: ["_day_5"],
+    entity_day6: ["_day_6"], entity_day7: ["_day_7"], entity_day8: ["_day_8"],
+    entity_accuracy: ["_model_accuracy"],
+    entity_training: ["_training_count", "_training_entries"],
+    entity_condition: ["_today_condition"],
+  };
+  // Find "today" sensor
+  for (const [id, state] of Object.entries(states)) {
+    if (id.startsWith("sensor.") && id.endsWith("_today") && state.attributes?.date) {
+      d.entity_today = id; break;
+    }
+  }
+  if (!d.entity_today) return null;
+  const forecastPrefix = d.entity_today.slice(0, -6);
+  const metaPrefix = forecastPrefix.replace(/_forecast$/, "");
+  for (const [key, suffixList] of Object.entries(suffixes)) {
+    if (key === "entity_today") continue;
+    const isMeta = ["entity_accuracy", "entity_training", "entity_condition"].includes(key);
+    const prefix = isMeta ? metaPrefix : forecastPrefix;
+    let found = false;
+    for (const suffix of suffixList) {
+      const candidate = prefix + suffix;
+      if (states[candidate]) { d[key] = candidate; found = true; break; }
+    }
+    if (found) continue;
+    for (const suffix of suffixList) {
+      for (const id of Object.keys(states)) {
+        if (id.startsWith("sensor.") && id.endsWith(suffix)) {
+          d[key] = id; found = true; break;
+        }
+      }
+      if (found) break;
+    }
+  }
+  return d;
+}
+
 class SolarIndexCard extends HTMLElement {
   constructor() {
     super();
@@ -72,11 +128,8 @@ class SolarIndexCard extends HTMLElement {
   }
 
   setConfig(config) {
-    this._config = {
-      title: "Solar Forecast",
-      ...config,
-    };
-    this._prefixes = null;
+    this._config = { title: "Solar Forecast", ...config };
+    if (this._hass) this._render();
   }
 
   set hass(hass) {
@@ -84,68 +137,53 @@ class SolarIndexCard extends HTMLElement {
     this._render();
   }
 
-  _discoverPrefixes() {
-    if (!this._hass) return null;
-    if (this._config.entity_prefix) {
-      return { forecast: this._config.entity_prefix, meta: this._config.entity_prefix };
-    }
-    // Find entity ending in _today with a date attribute (= SolarIndex forecast sensor)
-    for (const [id, state] of Object.entries(this._hass.states)) {
-      if (id.endsWith("_today") && state.attributes?.date) {
-        const forecastPrefix = id.slice(0, -6); // remove "_today"
-        // Meta sensors have prefix without _forecast (e.g. sensor.home_solar)
-        const metaPrefix = forecastPrefix.replace(/_forecast$/, "");
-        return { forecast: forecastPrefix, meta: metaPrefix };
-      }
-    }
-    return null;
+  _s(entityId) {
+    if (!entityId || !this._hass) return undefined;
+    return this._hass.states[entityId];
   }
 
-  _getState(suffix) {
-    if (!this._prefixes) return undefined;
-    const metaSuffixes = ["model_accuracy", "training_count", "today_condition"];
-    const prefix = metaSuffixes.includes(suffix)
-      ? this._prefixes.meta
-      : this._prefixes.forecast;
-    return this._hass?.states[`${prefix}_${suffix}`];
+  _discoverEntities() {
+    return discoverSolarIndexEntities(this._hass);
   }
 
   _render() {
     if (!this._hass) return;
 
-    this._prefixes = this._discoverPrefixes();
-    // Show placeholder if no entities found yet
-    const testState = this._prefixes
-      ? this._hass.states[`${this._prefixes.forecast}_today`]
-      : null;
-    if (!testState) {
+    const cfg = this._config;
+
+    // Auto-discover defaults, then let manual config override per field
+    const disc = this._discoverEntities();
+    if (!disc && !cfg.entity_today) {
       this.shadowRoot.innerHTML = `
-        <style>
-          :host { display: block; }
-          .card {
-            background: var(--card-background-color);
-            border-radius: 16px;
-            padding: 24px;
-            font-family: var(--paper-font-body1_-_font-family, sans-serif);
-            color: var(--primary-text-color);
-            text-align: center;
-            opacity: 0.7;
-          }
-          .icon { font-size: 40px; margin-bottom: 12px; }
-          .title { font-weight: 600; margin-bottom: 6px; }
-          .sub { font-size: 13px; opacity: 0.6; }
-        </style>
+        <style>:host{display:block;}.card{background:var(--card-background-color);border-radius:16px;padding:24px;font-family:sans-serif;color:var(--primary-text-color);text-align:center;opacity:0.7;}</style>
         <div class="card">
-          <div class="icon">☀️</div>
-          <div class="title">SolarIndex</div>
-          <div class="sub">Waiting for data…<br>Make sure the integration is set up and entity_prefix is correct.</div>
+          <div style="text-align:right;font-size:10px;opacity:0.3;margin-bottom:8px;">v${CARD_VERSION}</div>
+          <div style="font-size:40px;margin-bottom:12px;">☀️</div>
+          <div style="font-weight:600;margin-bottom:6px;">SolarIndex</div>
+          <div style="font-size:13px;opacity:0.6;">Warte auf Daten…<br>Integration einrichten oder Sensoren manuell konfigurieren.</div>
         </div>`;
       return;
     }
+    const entityToday     = cfg.entity_today     || (disc && disc.entity_today);
+    const entityTomorrow  = cfg.entity_tomorrow  || (disc && disc.entity_tomorrow);
+    const entityDay3      = cfg.entity_day3      || (disc && disc.entity_day3);
+    const entityDay4      = cfg.entity_day4      || (disc && disc.entity_day4);
+    const entityDay5      = cfg.entity_day5      || (disc && disc.entity_day5);
+    const entityDay6      = cfg.entity_day6      || (disc && disc.entity_day6);
+    const entityDay7      = cfg.entity_day7      || (disc && disc.entity_day7);
+    const entityDay8      = cfg.entity_day8      || (disc && disc.entity_day8);
+    const entityAccuracy  = cfg.entity_accuracy  || (disc && disc.entity_accuracy);
+    const entityTraining  = cfg.entity_training  || (disc && disc.entity_training);
+    const entityCondition = cfg.entity_condition || (disc && disc.entity_condition);
 
-    const prefix = this._config.entity_prefix;
-    const forecasts = DAY_KEYS.map((key, i) => {
-      const state = this._getState(key);
+    const DAY_ENTITY_KEYS = [
+      entityToday, entityTomorrow,
+      entityDay3, entityDay4, entityDay5,
+      entityDay6, entityDay7, entityDay8,
+    ];
+
+    const forecasts = DAY_ENTITY_KEYS.map((entityId, i) => {
+      const state = this._s(entityId);
       if (!state) return null;
       const attrs = state.attributes || {};
       return {
@@ -155,23 +193,28 @@ class SolarIndexCard extends HTMLElement {
         condition: attrs.condition || "mixed",
         weather_code: attrs.weather_code,
         temp_max: attrs.temp_max_c,
-        radiation: attrs.radiation_mj_m2,
+        temp_min: attrs.temp_min_c,
         sunrise: attrs.sunrise,
         sunset: attrs.sunset,
       };
     }).filter(Boolean);
 
-    const accuracyState = this._getState("model_accuracy");
-    const countState = this._getState("training_count");
-    const conditionState = this._getState("today_condition");
+    const accuracyState  = this._s(entityAccuracy);
+    const countState     = this._s(entityTraining);
+    const conditionState = this._s(entityCondition);
 
-    const accuracy = accuracyState ? parseFloat(accuracyState.state) : 0;
-    const trainingCount = countState ? parseInt(countState.state) : 0;
-    const todayCondition = conditionState ? conditionState.state : "mixed";
+    const accuracy = accuracyState ? parseFloat(accuracyState.state) || 0 : 0;
+    const trainingCount = countState ? parseInt(countState.state) || 0 : 0;
+    const countAttrs = countState ? countState.attributes || {} : {};
+    const bucketSunny = countAttrs.sunny ?? "—";
+    const bucketMixed = countAttrs.mixed ?? "—";
+    const bucketOvercast = countAttrs.overcast ?? "—";
+    const maxPerBucket = countAttrs.max_per_bucket ?? 10;
+    // Fall back to today's forecast condition attribute if sensor not found
+    const todayCondition = conditionState
+      ? conditionState.state
+      : (forecasts[0]?.condition || "mixed");
     const today = forecasts[0] || {};
-
-    // Chart data
-    const maxKwh = Math.max(...forecasts.map(f => f.kwh), 1);
 
     const styles = `
       :host { display: block; }
@@ -261,40 +304,10 @@ class SolarIndexCard extends HTMLElement {
         font-weight: 700;
         font-size: 13px;
       }
-
-      /* Chart */
-      .chart-section { margin-bottom: 20px; }
-      .chart-title {
-        font-size: 11px;
-        opacity: 0.4;
-        margin-bottom: 8px;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-      }
-      .chart {
-        display: flex;
-        align-items: flex-end;
-        gap: 4px;
-        height: 60px;
-      }
-      .chart-bar-wrap {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        height: 100%;
-        justify-content: flex-end;
-      }
-      .chart-bar {
-        width: 100%;
-        border-radius: 4px 4px 0 0;
-        min-height: 3px;
-        transition: height 0.3s;
-      }
-      .chart-bar-label {
-        font-size: 9px;
-        opacity: 0.4;
-        margin-top: 3px;
+      .forecast-day-temp {
+        font-size: 10px;
+        opacity: 0.5;
+        margin-top: 2px;
       }
 
       /* Training progress */
@@ -303,53 +316,46 @@ class SolarIndexCard extends HTMLElement {
         background: rgba(255,255,255,0.04);
         border-radius: 10px;
       }
-      .training-header {
-        display: flex;
-        justify-content: space-between;
+      .training-title {
         font-size: 12px;
-        margin-bottom: 8px;
         opacity: 0.7;
+        margin-bottom: 10px;
       }
-      .progress-bar-bg {
-        height: 6px;
-        background: rgba(255,255,255,0.1);
-        border-radius: 3px;
-        overflow: hidden;
+      .training-buckets {
+        display: flex;
+        gap: 8px;
       }
-      .progress-bar-fill {
-        height: 100%;
-        border-radius: 3px;
-        transition: width 0.5s ease;
-        background: linear-gradient(90deg, #6366f1, #8b5cf6);
+      .training-bucket {
+        flex: 1;
+        text-align: center;
+        padding: 8px 4px;
+        background: rgba(255,255,255,0.04);
+        border-radius: 8px;
       }
+      .bucket-icon { font-size: 16px; margin-bottom: 4px; }
+      .bucket-label { font-size: 10px; opacity: 0.5; margin-bottom: 2px; }
+      .bucket-count { font-size: 14px; font-weight: 700; }
     `;
 
     const conditionColor = CONDITION_COLORS[todayCondition] || "#6366f1";
     const conditionLabel = CONDITION_LABELS[todayCondition] || todayCondition;
 
-    const forecastDaysHtml = forecasts.slice(1).map((f, i) => `
+    const forecastDaysHtml = forecasts.slice(1).map((f) => `
       <div class="forecast-day">
-        <div class="forecast-day-label">${DAY_LABELS[i + 1].substring(0, 3)}</div>
+        <div class="forecast-day-label">${shortWeekday(f.date)}</div>
         <div class="forecast-day-icon">${getWeatherIcon(f.weather_code)}</div>
         <div class="forecast-day-kwh">${f.kwh.toFixed(1)}</div>
+        ${f.temp_min != null || f.temp_max != null ? `<div class="forecast-day-temp">${f.temp_min ?? "—"}° / ${f.temp_max ?? "—"}°</div>` : ""}
       </div>
     `).join("");
-
-    const chartBarsHtml = forecasts.map((f, i) => {
-      const heightPct = maxKwh > 0 ? Math.max(5, (f.kwh / maxKwh) * 100) : 5;
-      const color = i === 0 ? conditionColor : "rgba(255,255,255,0.2)";
-      return `
-        <div class="chart-bar-wrap">
-          <div class="chart-bar" style="height:${heightPct}%; background:${color};"></div>
-          <div class="chart-bar-label">${i === 0 ? "T" : i === 1 ? "T+1" : "+" + (i + 1)}</div>
-        </div>
-      `;
-    }).join("");
 
     this.shadowRoot.innerHTML = `
       <style>${styles}</style>
       <div class="card">
-        <div class="card-title">${this._config.title}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <div class="card-title" style="margin-bottom:0;">${this._config.title}</div>
+          <div style="font-size:10px;opacity:0.3;">v${CARD_VERSION}</div>
+        </div>
 
         <!-- Today -->
         <div class="today-section">
@@ -365,8 +371,7 @@ class SolarIndexCard extends HTMLElement {
             </div>
             <div class="weather-icon">${getWeatherIcon(today.weather_code)}</div>
             <div class="today-details">
-              ${today.temp_max != null ? `🌡 ${today.temp_max}°C` : ""}
-              ${today.radiation != null ? `  ☀ ${today.radiation} MJ/m²` : ""}
+              ${today.temp_max != null || today.temp_min != null ? `🌡 ${today.temp_min ?? "—"}° / ${today.temp_max ?? "—"}°C` : ""}
             </div>
           </div>
         </div>
@@ -376,20 +381,25 @@ class SolarIndexCard extends HTMLElement {
           ${forecastDaysHtml}
         </div>
 
-        <!-- Chart -->
-        <div class="chart-section">
-          <div class="chart-title">8-Day Forecast (kWh)</div>
-          <div class="chart">${chartBarsHtml}</div>
-        </div>
-
         <!-- Training progress -->
         <div class="training-section">
-          <div class="training-header">
-            <span>🧠 Model Training</span>
-            <span>${trainingCount} / 30 entries · ${accuracy.toFixed(0)}%</span>
-          </div>
-          <div class="progress-bar-bg">
-            <div class="progress-bar-fill" style="width:${accuracy}%;"></div>
+          <div class="training-title">🧠 Modell-Training · ${trainingCount}/30 Einträge · ${accuracy.toFixed(0)}%</div>
+          <div class="training-buckets">
+            <div class="training-bucket">
+              <div class="bucket-icon">☀️</div>
+              <div class="bucket-label">Sonnig</div>
+              <div class="bucket-count" style="color:#f59e0b;">${bucketSunny}/${maxPerBucket}</div>
+            </div>
+            <div class="training-bucket">
+              <div class="bucket-icon">⛅</div>
+              <div class="bucket-label">Wechselhaft</div>
+              <div class="bucket-count" style="color:#6366f1;">${bucketMixed}/${maxPerBucket}</div>
+            </div>
+            <div class="training-bucket">
+              <div class="bucket-icon">☁️</div>
+              <div class="bucket-label">Bewölkt</div>
+              <div class="bucket-count" style="color:#64748b;">${bucketOvercast}/${maxPerBucket}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -402,6 +412,85 @@ class SolarIndexCard extends HTMLElement {
 }
 
 customElements.define("solarindex-card", SolarIndexCard);
+
+// ---------------------------------------------------------------------------
+// Card Editor (GUI configuration) – uses native ha-form with entity pickers
+// ---------------------------------------------------------------------------
+
+const EDITOR_SCHEMA = [
+  { name: "title",            label: "Titel",                      selector: { text: {} } },
+  { name: "entity_today",     label: "Sensor: Heute",              selector: { entity: { filter: { integration: "solarindex", domain: "sensor" } } } },
+  { name: "entity_tomorrow",  label: "Sensor: Morgen",             selector: { entity: { filter: { integration: "solarindex", domain: "sensor" } } } },
+  { name: "entity_day3",      label: "Sensor: Tag 3",              selector: { entity: { filter: { integration: "solarindex", domain: "sensor" } } } },
+  { name: "entity_day4",      label: "Sensor: Tag 4",              selector: { entity: { filter: { integration: "solarindex", domain: "sensor" } } } },
+  { name: "entity_day5",      label: "Sensor: Tag 5",              selector: { entity: { filter: { integration: "solarindex", domain: "sensor" } } } },
+  { name: "entity_day6",      label: "Sensor: Tag 6",              selector: { entity: { filter: { integration: "solarindex", domain: "sensor" } } } },
+  { name: "entity_day7",      label: "Sensor: Tag 7",              selector: { entity: { filter: { integration: "solarindex", domain: "sensor" } } } },
+  { name: "entity_day8",      label: "Sensor: Tag 8",              selector: { entity: { filter: { integration: "solarindex", domain: "sensor" } } } },
+  { name: "entity_accuracy",  label: "Sensor: Modell-Genauigkeit", selector: { entity: { filter: { integration: "solarindex", domain: "sensor" } } } },
+  { name: "entity_training",  label: "Sensor: Trainings-Einträge", selector: { entity: { filter: { integration: "solarindex", domain: "sensor" } } } },
+  { name: "entity_condition", label: "Sensor: Wetterbedingung",    selector: { entity: { filter: { integration: "solarindex", domain: "sensor" } } } },
+];
+
+class SolarIndexCardEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._config = {};
+    this._hass = null;
+    this._initialized = false;
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    if (this._form) this._form.hass = hass;
+    // Auto-fill entities on first hass set if config is empty
+    if (hass && !this._autoFilled && !this._config.entity_today) {
+      this._autoFilled = true;
+      const disc = discoverSolarIndexEntities(hass);
+      if (disc) {
+        this._config = { ...this._config, ...disc };
+        if (this._form) this._form.data = this._config;
+        this.dispatchEvent(new CustomEvent("config-changed", {
+          detail: { config: this._config },
+          bubbles: true,
+          composed: true,
+        }));
+      }
+    }
+  }
+
+  setConfig(config) {
+    this._config = config || {};
+    if (this._form) {
+      this._form.data = this._config;
+    }
+    if (!this._initialized) this._initialize();
+  }
+
+  connectedCallback() {
+    if (!this._initialized) this._initialize();
+  }
+
+  _initialize() {
+    this._initialized = true;
+    this.shadowRoot.innerHTML = `<ha-form></ha-form>`;
+    this._form = this.shadowRoot.querySelector("ha-form");
+    this._form.hass = this._hass;
+    this._form.data = this._config;
+    this._form.schema = EDITOR_SCHEMA;
+    this._form.computeLabel = (s) => s.label;
+    this._form.addEventListener("value-changed", (e) => {
+      this.dispatchEvent(new CustomEvent("config-changed", {
+        detail: { config: e.detail.value },
+        bubbles: true,
+        composed: true,
+      }));
+    });
+  }
+}
+
+customElements.define("solarindex-card-editor", SolarIndexCardEditor);
 
 window.customCards = window.customCards || [];
 window.customCards.push({

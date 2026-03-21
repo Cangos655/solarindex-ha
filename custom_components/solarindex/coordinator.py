@@ -84,6 +84,17 @@ class SolarIndexCoordinator(DataUpdateCoordinator):
         return len([e for e in self._history if not e.get("is_auto_fill", False)])
 
     @property
+    def training_per_bucket(self) -> dict[str, int]:
+        """Return real training entry count per bucket."""
+        real = [e for e in self._history if not e.get("is_auto_fill", False)]
+        counts = {"sunny": 0, "mixed": 0, "overcast": 0}
+        for e in real:
+            bucket = e.get("bucket", "mixed")
+            if bucket in counts:
+                counts[bucket] += 1
+        return counts
+
+    @property
     def model_accuracy(self) -> float:
         return get_model_accuracy(self._history)
 
@@ -242,5 +253,6 @@ class SolarIndexCoordinator(DataUpdateCoordinator):
             "yesterday": weather_data.get("yesterday"),
             "model_accuracy": self.model_accuracy,
             "training_count": self.training_count,
+            "training_per_bucket": self.training_per_bucket,
             "today_condition": forecasts[0]["condition"] if forecasts else "unknown",
         }
