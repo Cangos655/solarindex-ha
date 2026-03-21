@@ -76,7 +76,7 @@ class SolarIndexCard extends HTMLElement {
       title: "Solar Forecast",
       ...config,
     };
-    this._prefix = null; // reset so auto-discovery reruns
+    this._prefixes = null;
   }
 
   set hass(hass) {
@@ -84,33 +84,40 @@ class SolarIndexCard extends HTMLElement {
     this._render();
   }
 
-  _discoverPrefix() {
+  _discoverPrefixes() {
     if (!this._hass) return null;
-    // If manually set, use it
-    if (this._config.entity_prefix) return this._config.entity_prefix;
-    // Auto-discover: find any entity with a "condition" attribute (sunny/mixed/overcast)
+    if (this._config.entity_prefix) {
+      return { forecast: this._config.entity_prefix, meta: this._config.entity_prefix };
+    }
+    // Find entity ending in _today with a date attribute (= SolarIndex forecast sensor)
     for (const [id, state] of Object.entries(this._hass.states)) {
-      const cond = state.attributes?.condition;
-      if (cond === "sunny" || cond === "mixed" || cond === "overcast") {
-        // entity id ends with _today → prefix is everything before _today
-        if (id.endsWith("_today")) return id.slice(0, -6); // remove "_today"
+      if (id.endsWith("_today") && state.attributes?.date) {
+        const forecastPrefix = id.slice(0, -6); // remove "_today"
+        // Meta sensors have prefix without _forecast (e.g. sensor.home_solar)
+        const metaPrefix = forecastPrefix.replace(/_forecast$/, "");
+        return { forecast: forecastPrefix, meta: metaPrefix };
       }
     }
     return null;
   }
 
   _getState(suffix) {
-    const prefix = this._prefix;
-    if (!prefix) return undefined;
+    if (!this._prefixes) return undefined;
+    const metaSuffixes = ["model_accuracy", "training_count", "today_condition"];
+    const prefix = metaSuffixes.includes(suffix)
+      ? this._prefixes.meta
+      : this._prefixes.forecast;
     return this._hass?.states[`${prefix}_${suffix}`];
   }
 
   _render() {
     if (!this._hass) return;
 
-    this._prefix = this._discoverPrefix();
+    this._prefixes = this._discoverPrefixes();
     // Show placeholder if no entities found yet
-    const testState = this._prefix ? this._hass.states[`${this._prefix}_today`] : null;
+    const testState = this._prefixes
+      ? this._hass.states[`${this._prefixes.forecast}_today`]
+      : null;
     if (!testState) {
       this.shadowRoot.innerHTML = `
         <style>

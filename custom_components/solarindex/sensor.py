@@ -158,7 +158,7 @@ class SolarIndexTrainingCountSensor(SolarIndexBaseSensor):
     """Number of real training entries."""
 
     def __init__(self, coordinator: SolarIndexCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator, entry, "training_count", "SolarIndex Training Entries")
+        super().__init__(coordinator, entry, "training_count", "SolarIndex Training Count")
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:counter"
 
