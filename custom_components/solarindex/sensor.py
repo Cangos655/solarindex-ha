@@ -169,11 +169,13 @@ class SolarIndexTrainingCountSensor(SolarIndexBaseSensor):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         per_bucket = (self.coordinator.data or {}).get("training_per_bucket", {})
+        history = (self.coordinator.data or {}).get("training_history", [])
         return {
             "sunny": per_bucket.get("sunny", 0),
             "mixed": per_bucket.get("mixed", 0),
             "overcast": per_bucket.get("overcast", 0),
             "max_per_bucket": 10,
+            "history": history,
         }
 
 

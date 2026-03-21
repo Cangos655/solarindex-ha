@@ -248,11 +248,25 @@ class SolarIndexCoordinator(DataUpdateCoordinator):
                 "condition": bucket,
             })
 
+        # Build compact history for sensor attributes
+        training_history = []
+        for e in self._history:
+            training_history.append({
+                "date": e.get("date"),
+                "kwh": round(e.get("yield_kwh", 0), 2),
+                "radiation": round(e.get("radiation", 0), 1),
+                "bucket": e.get("bucket"),
+                "optical_index": round(e.get("optical_index", 0), 4),
+                "auto": e.get("is_auto_fill", False),
+            })
+        training_history.sort(key=lambda x: x["date"], reverse=True)
+
         return {
             "forecasts": forecasts,
             "yesterday": weather_data.get("yesterday"),
             "model_accuracy": self.model_accuracy,
             "training_count": self.training_count,
             "training_per_bucket": self.training_per_bucket,
+            "training_history": training_history,
             "today_condition": forecasts[0]["condition"] if forecasts else "unknown",
         }
