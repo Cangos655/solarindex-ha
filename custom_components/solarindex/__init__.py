@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import logging
-import pathlib
-import shutil
 
-from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
@@ -17,16 +14,6 @@ from .coordinator import SolarIndexCoordinator
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [Platform.SENSOR]
-
-_CARD_FILENAME = "solarindex-card.js"
-_CARD_URL = f"/local/{_CARD_FILENAME}"
-
-
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Register the Lovelace card JS at startup (called once, before any entries)."""
-    await hass.async_add_executor_job(_copy_card_to_www, hass)
-    add_extra_js_url(hass, _CARD_URL)
-    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -44,17 +31,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     return True
-
-
-def _copy_card_to_www(hass: HomeAssistant) -> None:
-    """Copy solarindex-card.js to /config/www/ (served by HA at /local/)."""
-    src = pathlib.Path(__file__).parent / "www" / _CARD_FILENAME
-    dst_dir = pathlib.Path(hass.config.config_dir) / "www"
-    dst_dir.mkdir(exist_ok=True)
-    dst = dst_dir / _CARD_FILENAME
-    shutil.copy2(str(src), str(dst))
-    _LOGGER.debug("Copied %s to %s", _CARD_FILENAME, dst)
-
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
