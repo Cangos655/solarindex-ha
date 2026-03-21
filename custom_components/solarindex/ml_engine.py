@@ -241,7 +241,7 @@ def _auto_fill_missing_buckets(
         offset = {"sunny": 1, "mixed": 2, "overcast": 3}
         try:
             synth_date = (
-                datetime.fromisoformat(base_date) - timedelta(days=offset.get(bucket, 1))
+                date.fromisoformat(base_date) - timedelta(days=offset.get(bucket, 1))
             ).strftime("%Y-%m-%d")
         except Exception:
             synth_date = f"{base_date}_auto_{bucket}"

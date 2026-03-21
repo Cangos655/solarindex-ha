@@ -43,7 +43,7 @@ STORAGE_VERSION = 1
 STORAGE_KEY_TEMPLATE = f"{DOMAIN}_{{entry_id}}_history"
 
 # Bump this when the date attribution logic changes to force a clean retrain
-CURRENT_DATA_VERSION = 2
+CURRENT_DATA_VERSION = 3
 
 
 class SolarIndexCoordinator(DataUpdateCoordinator):
@@ -166,18 +166,37 @@ class SolarIndexCoordinator(DataUpdateCoordinator):
             # Support both dict (older HA) and object (newer HA) row formats
             row_sum = row["sum"] if isinstance(row, dict) else row.sum
             prev_sum = prev["sum"] if isinstance(prev, dict) else prev.sum
-            if row_sum is not None and prev_sum is not None:
-                delta = row_sum - prev_sum
-                if delta >= MIN_YIELD_KWH:
-                    # Use prev_start: the delta represents production that BEGAN at prev_start,
-                    # so the local date of prev_start is the correct date for this production.
-                    prev_start = prev["start"] if isinstance(prev, dict) else prev.start
-                    if isinstance(prev_start, (int, float)):
-                        prev_start = datetime.fromtimestamp(prev_start, tz=timezone.utc)
-                    date_str = dt_util.as_local(prev_start).strftime("%Y-%m-%d")
-                    if date_str == today_str:
-                        continue  # skip today – the day is not yet complete
-                    daily_yields[date_str] = round(delta, 3)
+            if row_sum is None or prev_sum is None:
+                continue
+            delta = row_sum - prev_sum
+            if delta < MIN_YIELD_KWH:
+                continue
+
+            # Resolve timestamps for both rows
+            prev_start = prev["start"] if isinstance(prev, dict) else prev.start
+            row_start = row["start"] if isinstance(row, dict) else row.start
+            if isinstance(prev_start, (int, float)):
+                prev_start = datetime.fromtimestamp(prev_start, tz=timezone.utc)
+            if isinstance(row_start, (int, float)):
+                row_start = datetime.fromtimestamp(row_start, tz=timezone.utc)
+
+            # Skip entries where the statistics gap spans more than ~1 day.
+            # This happens when the recorder has missing rows: the delta then
+            # covers multiple days and would corrupt one training entry.
+            gap_hours = (row_start - prev_start).total_seconds() / 3600
+            if gap_hours > 30:
+                _LOGGER.warning(
+                    "Skipping recorder gap of %.1f h ending at %s – likely missing statistics",
+                    gap_hours, dt_util.as_local(row_start).strftime("%Y-%m-%d"),
+                )
+                continue
+
+            # Use prev_start: the delta represents production that BEGAN at prev_start,
+            # so the local date of prev_start is the correct date for this production.
+            date_str = dt_util.as_local(prev_start).strftime("%Y-%m-%d")
+            if date_str == today_str:
+                continue  # skip today – the day is not yet complete
+            daily_yields[date_str] = round(delta, 3)
 
         _LOGGER.debug("Read %d daily solar yield entries from recorder", len(daily_yields))
         return daily_yields
