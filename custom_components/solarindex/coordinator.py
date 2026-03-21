@@ -25,6 +25,7 @@ from .const import (
     DEFAULT_CELL_TEMP_OFFSET,
     DEFAULT_TEMP_COEFFICIENT,
     DOMAIN,
+    MIN_YIELD_KWH,
     UPDATE_INTERVAL,
 )
 from .ml_engine import (
@@ -40,6 +41,9 @@ _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
 STORAGE_KEY_TEMPLATE = f"{DOMAIN}_{{entry_id}}_history"
+
+# Bump this when the date attribution logic changes to force a clean retrain
+CURRENT_DATA_VERSION = 2
 
 
 class SolarIndexCoordinator(DataUpdateCoordinator):
@@ -104,29 +108,25 @@ class SolarIndexCoordinator(DataUpdateCoordinator):
 
     async def _load_history(self) -> None:
         stored = await self._store.async_load()
-        if stored and isinstance(stored.get("history"), list):
-            self._history = stored["history"]
-            # Remove stale entries with invalid date format (e.g. "2026-03-19_auto_overcast")
-            valid = []
-            for e in self._history:
-                try:
-                    datetime.fromisoformat(str(e.get("date", "")))
-                    valid.append(e)
-                except (ValueError, TypeError):
-                    _LOGGER.info("Removing stale training entry with invalid date: %s", e.get("date"))
-            if len(valid) != len(self._history):
-                self._history = valid
-                await self._save_history()
-                _LOGGER.info(
-                    "Cleaned %d stale entries, %d remain",
-                    len(stored["history"]) - len(valid),
-                    len(valid),
-                )
-            else:
-                _LOGGER.debug("Loaded %d training entries from storage", len(self._history))
+        if not stored or not isinstance(stored.get("history"), list):
+            return
+
+        # Clear history when data format changed (e.g. date attribution fix)
+        data_version = stored.get("data_version", 1)
+        if data_version < CURRENT_DATA_VERSION:
+            _LOGGER.info(
+                "Training data format changed (v%d → v%d), clearing history for clean retrain",
+                data_version, CURRENT_DATA_VERSION,
+            )
+            self._history = []
+            await self._save_history()
+            return
+
+        self._history = stored["history"]
+        _LOGGER.debug("Loaded %d training entries from storage", len(self._history))
 
     async def _save_history(self) -> None:
-        await self._store.async_save({"history": self._history})
+        await self._store.async_save({"history": self._history, "data_version": CURRENT_DATA_VERSION})
 
     # ------------------------------------------------------------------
     # HA Recorder: read daily solar statistics
@@ -157,6 +157,7 @@ class SolarIndexCoordinator(DataUpdateCoordinator):
         if not sensor_stats:
             return {}
 
+        today_str = dt_util.now().strftime("%Y-%m-%d")
         daily_yields: dict[str, float] = {}
         for i, row in enumerate(sensor_stats):
             if i == 0:
@@ -167,12 +168,15 @@ class SolarIndexCoordinator(DataUpdateCoordinator):
             prev_sum = prev["sum"] if isinstance(prev, dict) else prev.sum
             if row_sum is not None and prev_sum is not None:
                 delta = row_sum - prev_sum
-                if delta > 0:
-                    row_start = row["start"] if isinstance(row, dict) else row.start
-                    # start may be a Unix timestamp (float/int) or a datetime
-                    if isinstance(row_start, (int, float)):
-                        row_start = datetime.fromtimestamp(row_start, tz=timezone.utc)
-                    date_str = dt_util.as_local(row_start).strftime("%Y-%m-%d")
+                if delta >= MIN_YIELD_KWH:
+                    # Use prev_start: the delta represents production that BEGAN at prev_start,
+                    # so the local date of prev_start is the correct date for this production.
+                    prev_start = prev["start"] if isinstance(prev, dict) else prev.start
+                    if isinstance(prev_start, (int, float)):
+                        prev_start = datetime.fromtimestamp(prev_start, tz=timezone.utc)
+                    date_str = dt_util.as_local(prev_start).strftime("%Y-%m-%d")
+                    if date_str == today_str:
+                        continue  # skip today – the day is not yet complete
                     daily_yields[date_str] = round(delta, 3)
 
         _LOGGER.debug("Read %d daily solar yield entries from recorder", len(daily_yields))
