@@ -68,15 +68,15 @@ class SolarIndexCard extends HTMLElement {
   }
 
   static getStubConfig() {
-    return { entity_prefix: "sensor.solarindex", title: "Solar Forecast" };
+    return { title: "Solar Forecast" };
   }
 
   setConfig(config) {
     this._config = {
-      entity_prefix: "sensor.solarindex",
       title: "Solar Forecast",
       ...config,
     };
+    this._prefix = null; // reset so auto-discovery reruns
   }
 
   set hass(hass) {
@@ -84,16 +84,33 @@ class SolarIndexCard extends HTMLElement {
     this._render();
   }
 
+  _discoverPrefix() {
+    if (!this._hass) return null;
+    // If manually set, use it
+    if (this._config.entity_prefix) return this._config.entity_prefix;
+    // Auto-discover: find any entity with a "condition" attribute (sunny/mixed/overcast)
+    for (const [id, state] of Object.entries(this._hass.states)) {
+      const cond = state.attributes?.condition;
+      if (cond === "sunny" || cond === "mixed" || cond === "overcast") {
+        // entity id ends with _today → prefix is everything before _today
+        if (id.endsWith("_today")) return id.slice(0, -6); // remove "_today"
+      }
+    }
+    return null;
+  }
+
   _getState(suffix) {
-    const id = `${this._config.entity_prefix}_${suffix}`;
-    return this._hass?.states[id];
+    const prefix = this._prefix;
+    if (!prefix) return undefined;
+    return this._hass?.states[`${prefix}_${suffix}`];
   }
 
   _render() {
     if (!this._hass) return;
 
+    this._prefix = this._discoverPrefix();
     // Show placeholder if no entities found yet
-    const testState = this._hass.states[`${this._config.entity_prefix}_today`];
+    const testState = this._prefix ? this._hass.states[`${this._prefix}_today`] : null;
     if (!testState) {
       this.shadowRoot.innerHTML = `
         <style>

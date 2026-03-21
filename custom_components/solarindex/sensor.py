@@ -74,7 +74,7 @@ class SolarIndexBaseSensor(CoordinatorEntity[SolarIndexCoordinator], SensorEntit
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_{unique_suffix}"
         self._attr_name = name
-        self._attr_has_entity_name = True
+        self._attr_has_entity_name = False
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -102,7 +102,7 @@ class SolarIndexForecastSensor(SolarIndexBaseSensor):
         label: str,
     ) -> None:
         pretty = label.replace("_", " ").title()
-        super().__init__(coordinator, entry, label, f"Solar Forecast {pretty}")
+        super().__init__(coordinator, entry, label, f"SolarIndex {pretty}")
         self._day_index = day_index
         self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
         self._attr_device_class = SensorDeviceClass.ENERGY
@@ -144,7 +144,7 @@ class SolarIndexAccuracySensor(SolarIndexBaseSensor):
     """Model training accuracy in percent."""
 
     def __init__(self, coordinator: SolarIndexCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator, entry, "model_accuracy", "Solar Model Accuracy")
+        super().__init__(coordinator, entry, "model_accuracy", "SolarIndex Model Accuracy")
         self._attr_native_unit_of_measurement = "%"
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:brain"
@@ -158,7 +158,7 @@ class SolarIndexTrainingCountSensor(SolarIndexBaseSensor):
     """Number of real training entries."""
 
     def __init__(self, coordinator: SolarIndexCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator, entry, "training_count", "Solar Training Entries")
+        super().__init__(coordinator, entry, "training_count", "SolarIndex Training Entries")
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:counter"
 
@@ -171,7 +171,7 @@ class SolarIndexConditionSensor(SolarIndexBaseSensor):
     """Today's weather condition bucket (sunny / mixed / overcast)."""
 
     def __init__(self, coordinator: SolarIndexCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator, entry, "today_condition", "Solar Today Condition")
+        super().__init__(coordinator, entry, "today_condition", "SolarIndex Today Condition")
         self._attr_icon = "mdi:weather-partly-cloudy"
 
     @property
