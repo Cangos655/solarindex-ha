@@ -106,7 +106,24 @@ class SolarIndexCoordinator(DataUpdateCoordinator):
         stored = await self._store.async_load()
         if stored and isinstance(stored.get("history"), list):
             self._history = stored["history"]
-            _LOGGER.debug("Loaded %d training entries from storage", len(self._history))
+            # Remove stale entries with invalid date format (e.g. "2026-03-19_auto_overcast")
+            valid = []
+            for e in self._history:
+                try:
+                    datetime.fromisoformat(str(e.get("date", "")))
+                    valid.append(e)
+                except (ValueError, TypeError):
+                    _LOGGER.info("Removing stale training entry with invalid date: %s", e.get("date"))
+            if len(valid) != len(self._history):
+                self._history = valid
+                await self._save_history()
+                _LOGGER.info(
+                    "Cleaned %d stale entries, %d remain",
+                    len(stored["history"]) - len(valid),
+                    len(valid),
+                )
+            else:
+                _LOGGER.debug("Loaded %d training entries from storage", len(self._history))
 
     async def _save_history(self) -> None:
         await self._store.async_save({"history": self._history})
@@ -155,7 +172,7 @@ class SolarIndexCoordinator(DataUpdateCoordinator):
                     # start may be a Unix timestamp (float/int) or a datetime
                     if isinstance(row_start, (int, float)):
                         row_start = datetime.fromtimestamp(row_start, tz=timezone.utc)
-                    date_str = row_start.astimezone(timezone.utc).strftime("%Y-%m-%d")
+                    date_str = dt_util.as_local(row_start).strftime("%Y-%m-%d")
                     daily_yields[date_str] = round(delta, 3)
 
         _LOGGER.debug("Read %d daily solar yield entries from recorder", len(daily_yields))
