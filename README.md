@@ -4,19 +4,18 @@ A HACS-compatible custom integration that predicts your daily solar panel energy
 
 ## Features
 
-- **8-day solar yield forecast** (kWh per day)
-- **Automatic ML training** – reads your actual solar production from HA Energy Dashboard, no manual input needed
+- **Solar yield forecast** (kWh per day, up to 8 days ahead)
+- **Automatic ML training** – reads your actual solar production from the HA Energy Dashboard, no manual input needed
 - **Weather-bucketed learning** – separate efficiency curves for sunny, mixed, and overcast days
 - **Temperature compensation** – accounts for panel efficiency loss at high temperatures
 - **11 HA sensor entities** – usable in automations, dashboards, and Energy cards
-- **Ready-made Lovelace card** – visual forecast with training progress bar
+- **Lovelace card** – available as a separate HACS frontend component ([SolarIndex Card](https://github.com/Cangos655/solarindex-card))
 - **Fully configurable via HA UI** – no YAML needed
-- **English + German UI**
 
 ## Requirements
 
 - Home Assistant 2024.1 or newer
-- A solar energy sensor with `device_class: energy` (e.g. from a Fronius, SMA, Huawei, or Shelly inverter integration)
+- A solar energy sensor with `device_class: energy` and `state_class: total_increasing` (e.g. from a Fronius, SMA, Huawei, or Shelly inverter integration)
 - HACS installed
 
 ## Installation
@@ -25,16 +24,13 @@ A HACS-compatible custom integration that predicts your daily solar panel energy
 
 1. Open HACS in Home Assistant
 2. Go to **Integrations** → click the three-dot menu → **Custom repositories**
-3. Add `https://github.com/Cangos655/solarindex-dashboard` as type **Integration**
+3. Add `https://github.com/Cangos655/solarindex-ha` as type **Integration**
 4. Search for **SolarIndex** and install
 5. Restart Home Assistant
 
-### Lovelace Card (manual step)
+### Lovelace Card
 
-1. Copy `lovelace/solarindex-card.js` to your HA `www/` folder
-2. In HA: **Settings → Dashboards → Resources** → Add resource:
-   - URL: `/local/solarindex-card.js`
-   - Type: JavaScript module
+Install the [SolarIndex Card](https://github.com/Cangos655/solarindex-card) separately via HACS → Frontend.
 
 ## Setup
 
@@ -43,7 +39,8 @@ A HACS-compatible custom integration that predicts your daily solar panel energy
 3. Follow the setup wizard:
    - Choose your location (HA home coordinates or city search)
    - Select your solar energy sensor from the dropdown
-   - Optionally adjust temperature compensation parameters
+
+The sensor must be a cumulative energy sensor (not a daily-reset measurement). After setup, the model trains automatically within the first update cycle.
 
 ## Sensors Created
 
@@ -58,16 +55,6 @@ A HACS-compatible custom integration that predicts your daily solar panel energy
 
 Each forecast sensor includes attributes: `date`, `weather_code`, `radiation_mj_m2`, `temp_max_c`, `condition`, `sunrise`, `sunset`.
 
-## Lovelace Card
-
-Add to your dashboard YAML:
-
-```yaml
-type: custom:solarindex-card
-entity_prefix: sensor.solarindex
-title: Solar Forecast
-```
-
 ## How the ML Model Works
 
 The model classifies each day into one of three weather buckets based on the **clear-sky ratio** (sunshine hours / daylight hours):
@@ -81,15 +68,6 @@ The model classifies each day into one of three weather buckets based on the **c
 For each bucket, it learns an **optical efficiency index** from your actual yield data. Newer data is weighted 10× more than older data. The model becomes reliable after ~10–15 real observations (a few weeks of data).
 
 **Temperature compensation** accounts for panel efficiency loss: cells typically run ~10°C warmer than air temperature, losing ~0.4% efficiency per degree above 25°C (STC).
-
-## Advanced Settings
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| Temperature coefficient | 0.004 | Efficiency loss per °C above 25°C |
-| Cell temp offset | 10 °C | Estimated cell temp above air temp |
-
-These can be changed after setup via **Settings → Devices & Services → SolarIndex → Configure**.
 
 ## Data Sources
 
