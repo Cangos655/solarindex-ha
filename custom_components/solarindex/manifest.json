@@ -1,7 +1,7 @@
 {
   "domain": "solarindex",
   "name": "SolarIndex",
-  "version": "1.1.8",
+  "version": "1.1.9",
   "documentation": "https://github.com/Cangos655/solarindex-ha",
   "issue_tracker": "https://github.com/Cangos655/solarindex-ha/issues",
   "requirements": ["aiohttp>=3.8.0"],

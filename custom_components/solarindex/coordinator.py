@@ -225,12 +225,31 @@ class SolarIndexCoordinator(DataUpdateCoordinator):
         if not daily_yields:
             return False
 
+        # Detect stale entries: recorder now shows a value ≥ 3× what was trained.
+        # This happens when a day was trained while still incomplete (e.g. early morning).
+        stale_dates: set[str] = set()
+        for entry in self._history:
+            date = entry.get("date", "")
+            if entry.get("is_auto_fill", False) or date not in daily_yields:
+                continue
+            stored = entry.get("yield_kwh", 0)
+            recorded = daily_yields[date]
+            if stored > 0 and recorded >= stored * 3:
+                stale_dates.add(date)
+                _LOGGER.info(
+                    "Stale entry %s: stored %.2f kWh but recorder shows %.2f kWh – will retrain",
+                    date, stored, recorded,
+                )
+
+        if stale_dates:
+            self._history = [e for e in self._history if e["date"] not in stale_dates]
+
         trained_dates = {e["date"] for e in self._history}
         new_dates = sorted(
             [d for d in daily_yields if d not in trained_dates], reverse=True
         )[:10]  # process at most 10 new days per update cycle
 
-        if not new_dates:
+        if not new_dates and not stale_dates:
             return False
 
         session = async_get_clientsession(self.hass)
