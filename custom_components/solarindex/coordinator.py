@@ -43,7 +43,7 @@ STORAGE_VERSION = 1
 STORAGE_KEY_TEMPLATE = f"{DOMAIN}_{{entry_id}}_history"
 
 # Bump this when the date attribution logic changes to force a clean retrain
-CURRENT_DATA_VERSION = 4
+CURRENT_DATA_VERSION = 5
 
 
 class SolarIndexCoordinator(DataUpdateCoordinator):
@@ -206,11 +206,16 @@ class SolarIndexCoordinator(DataUpdateCoordinator):
                 )
                 continue
 
-            # Use prev_start: the delta represents production that BEGAN at prev_start,
-            # so the local date of prev_start is the correct date for this production.
-            date_str = dt_util.as_local(prev_start).strftime("%Y-%m-%d")
+            # HA statistics store the cumulative sum at the START of each day.
+            # The delta between row[i-1] and row[i] is therefore the production
+            # of the day that ENDS at row[i].start (= the day whose midnight is row_start).
+            # Example: row_start = midnight local March 21 → delta = March 20 production
+            #          → correct label is "2026-03-21" because that is when the day closed.
+            # today_str exclusion below naturally prevents incomplete days from being trained.
+            date_str = dt_util.as_local(row_start).strftime("%Y-%m-%d")
             if date_str == today_str:
-                continue  # skip today – the day is not yet complete
+                continue  # row_start is today's midnight → delta covers yesterday, but
+                           # today's statistics row may not be final yet → skip
             daily_yields[date_str] = round(delta, 3)
 
         _LOGGER.debug("Read %d daily solar yield entries from recorder", len(daily_yields))
