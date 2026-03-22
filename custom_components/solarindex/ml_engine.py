@@ -24,6 +24,7 @@ from .const import (
     DEFAULT_CELL_TEMP_OFFSET,
     DEFAULT_TEMP_COEFFICIENT,
     MAX_HISTORY,
+    MAX_OPTICAL_INDEX,
     MAX_PER_BUCKET,
     STC_REFERENCE_TEMP,
     WEIGHT_NEWEST,
@@ -200,6 +201,14 @@ def save_training_entry(
 
     raw_index = yield_kwh / radiation
     optical_index = raw_index / temp_penalty if temp_penalty > 0 else raw_index
+
+    if optical_index > MAX_OPTICAL_INDEX:
+        _LOGGER.warning(
+            "Skipping %s: optical_index %.2f > %.1f – sensor data likely invalid "
+            "(wrong sensor configured or multi-day statistics gap)",
+            date_str, optical_index, MAX_OPTICAL_INDEX,
+        )
+        return history
 
     new_entry: TrainingEntry = {
         "date": date_str,

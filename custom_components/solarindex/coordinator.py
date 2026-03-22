@@ -43,7 +43,7 @@ STORAGE_VERSION = 1
 STORAGE_KEY_TEMPLATE = f"{DOMAIN}_{{entry_id}}_history"
 
 # Bump this when the date attribution logic changes to force a clean retrain
-CURRENT_DATA_VERSION = 3
+CURRENT_DATA_VERSION = 4
 
 
 class SolarIndexCoordinator(DataUpdateCoordinator):
@@ -106,6 +106,14 @@ class SolarIndexCoordinator(DataUpdateCoordinator):
     # Storage
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _is_valid_iso_date(value: str) -> bool:
+        try:
+            datetime.fromisoformat(str(value))
+            return len(str(value)) == 10  # strict YYYY-MM-DD
+        except (ValueError, TypeError):
+            return False
+
     async def _load_history(self) -> None:
         stored = await self._store.async_load()
         if not stored or not isinstance(stored.get("history"), list):
@@ -123,7 +131,16 @@ class SolarIndexCoordinator(DataUpdateCoordinator):
             return
 
         self._history = stored["history"]
-        _LOGGER.debug("Loaded %d training entries from storage", len(self._history))
+
+        # Remove any stale entries with invalid ISO date format (e.g. "2026-03-20_auto_overcast")
+        valid = [e for e in self._history if self._is_valid_iso_date(e.get("date", ""))]
+        if len(valid) != len(self._history):
+            removed = len(self._history) - len(valid)
+            self._history = valid
+            await self._save_history()
+            _LOGGER.info("Removed %d stale entries with invalid date format", removed)
+        else:
+            _LOGGER.debug("Loaded %d training entries from storage", len(self._history))
 
     async def _save_history(self) -> None:
         await self._store.async_save({"history": self._history, "data_version": CURRENT_DATA_VERSION})

@@ -51,7 +51,8 @@ OPEN_METEO_GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 
 FORECAST_DAYS = 8
 ARCHIVE_LOOKBACK_DAYS = 30
-MIN_YIELD_KWH = 0.5  # Minimum daily yield to accept as a valid training entry
+MIN_YIELD_KWH = 0.5   # Minimum daily yield to accept as a valid training entry
+MAX_OPTICAL_INDEX = 4.0  # Physical sanity limit – values above this indicate a wrong sensor
 
 # Sensor names
 SENSOR_TODAY = "today"
