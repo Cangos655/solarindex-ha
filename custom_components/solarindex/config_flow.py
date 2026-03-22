@@ -191,14 +191,6 @@ class SolarIndexOptionsFlow(config_entries.OptionsFlow):
                     CONF_SOLAR_SENSOR,
                     default=current.get(CONF_SOLAR_SENSOR, ""),
                 ): vol.In(energy_sensors),
-                vol.Optional(
-                    CONF_TEMP_COEFFICIENT,
-                    default=current.get(CONF_TEMP_COEFFICIENT, DEFAULT_TEMP_COEFFICIENT),
-                ): vol.All(vol.Coerce(float), vol.Range(min=0.001, max=0.01)),
-                vol.Optional(
-                    CONF_CELL_TEMP_OFFSET,
-                    default=current.get(CONF_CELL_TEMP_OFFSET, DEFAULT_CELL_TEMP_OFFSET),
-                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
             }
         )
         return self.async_show_form(
