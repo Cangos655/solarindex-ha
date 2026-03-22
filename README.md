@@ -2,6 +2,8 @@
 
 A HACS-compatible custom integration that predicts your daily solar panel energy production using a self-learning ML model trained automatically from your Home Assistant Energy Dashboard data.
 
+![SolarIndex Screenshot](Screenshot.png)
+
 ## Features
 
 - **Solar yield forecast** (kWh per day, up to 8 days ahead)
