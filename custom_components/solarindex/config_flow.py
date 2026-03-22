@@ -182,7 +182,8 @@ class SolarIndexOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        current = self._config_entry.data
+        # Options override data – same merge as coordinator
+        current = {**self._config_entry.data, **self._config_entry.options}
 
         schema = vol.Schema(
             {

@@ -51,15 +51,13 @@ class SolarIndexCoordinator(DataUpdateCoordinator):
 
     def __init__(self, hass: HomeAssistant, config_entry) -> None:
         self.config_entry = config_entry
-        self._latitude: float = config_entry.data[CONF_LATITUDE]
-        self._longitude: float = config_entry.data[CONF_LONGITUDE]
-        self._solar_sensor: str = config_entry.data[CONF_SOLAR_SENSOR]
-        self._temp_coefficient: float = config_entry.data.get(
-            CONF_TEMP_COEFFICIENT, DEFAULT_TEMP_COEFFICIENT
-        )
-        self._cell_temp_offset: int = config_entry.data.get(
-            CONF_CELL_TEMP_OFFSET, DEFAULT_CELL_TEMP_OFFSET
-        )
+        # Options override data (changed via the gear icon after initial setup)
+        cfg = {**config_entry.data, **config_entry.options}
+        self._latitude: float = cfg[CONF_LATITUDE]
+        self._longitude: float = cfg[CONF_LONGITUDE]
+        self._solar_sensor: str = cfg[CONF_SOLAR_SENSOR]
+        self._temp_coefficient: float = cfg.get(CONF_TEMP_COEFFICIENT, DEFAULT_TEMP_COEFFICIENT)
+        self._cell_temp_offset: int = cfg.get(CONF_CELL_TEMP_OFFSET, DEFAULT_CELL_TEMP_OFFSET)
 
         self._store: Store = Store(
             hass,
