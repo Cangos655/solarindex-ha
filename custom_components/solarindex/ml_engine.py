@@ -11,7 +11,7 @@ Weather-Clustered Machine Learning:
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 from typing import TypedDict
 
 from .const import (
