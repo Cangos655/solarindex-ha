@@ -1,3 +1,5 @@
+> **⚠️ This repository is no longer maintained.** It has been merged with the former `solarindex-card` into **[SolarForecast](https://github.com/Cangos655/SolarForecast)**, which is available directly in HACS. Please use SolarForecast instead.
+
 # SolarIndex – Solar Yield Forecasting for Home Assistant
 
 A HACS-compatible custom integration that predicts your daily solar panel energy production using a self-learning ML model trained automatically from your Home Assistant Energy Dashboard data.
